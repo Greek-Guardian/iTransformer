@@ -10,14 +10,12 @@ import time
 import warnings
 import numpy as np
 import random
-from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
 
 class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
-        # args.enc_in += 1
         super(Exp_Long_Term_Forecast, self).__init__(args)
 
     def _build_model(self):
@@ -44,11 +42,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         criterion = nn.MSELoss()
         return criterion
 
+
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(tqdm(vali_loader)):
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
                 if 'PEMS' in self.args.data or 'Solar' in self.args.data:
@@ -61,9 +60,18 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                outputs = self.discriminator_iter(batch_x, dec_inp, batch_x_mark, batch_y_mark)
-
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -77,49 +85,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
-
-
-    def discriminator_iter(self, batch_x, batch_y, batch_x_mark, batch_y_mark):
-        if self.args.use_discriminator:
-            input_zeros = torch.zeros_like(batch_x[:, :, :], dtype=torch.int64, requires_grad=False)
-            batch_x = torch.cat((batch_x, input_zeros), 2)
-            for _ in range(3):
-                if self.args.use_amp:
-                    with torch.cuda.amp.autocast():
-                        if self.args.output_attention:
-                            outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)[0]
-                        else:
-                            outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)
-                else:
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)[0]
-                    else:
-                        outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)
-                outputs = outputs[:, :, :self.args.enc_in]
-                # print('outputs:', outputs.shape)
-                # zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
-                ones = torch.ones_like(outputs[: ,0,  0:self.args.enc_in], dtype=torch.int64, requires_grad=False)
-                dis_result, hidden_state = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
-                dis_argmax = torch.argmax(dis_result, dim=1)
-                correct_count = torch.sum(dis_argmax == ones)
-                sum_count = dis_argmax.shape[0] * dis_argmax.shape[1]
-                if correct_count/sum_count > 0.8:
-                    break
-                else:
-                    batch_x[:, :, -self.args.enc_in:] = hidden_state
-        else:
-            if self.args.use_amp:
-                with torch.cuda.amp.autocast():
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)[0]
-                    else:
-                        outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)
-            else:
-                if self.args.output_attention:
-                    outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)[0]
-                else:
-                    outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)
-        return outputs
 
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
@@ -151,9 +116,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             correct_count = 0
             sum_count = 0
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                # 清空显卡缓存
-                torch.cuda.empty_cache()
-
                 iter_count += 1
                 model_optim.zero_grad()
                 batch_x = batch_x.float().to(self.device)
@@ -169,25 +131,43 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
-                outputs = self.discriminator_iter(batch_x, dec_inp, batch_x_mark, batch_y_mark)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        f_dim = -1 if self.args.features == 'MS' else 0
+                        outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                        batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                        loss = criterion(outputs, batch_y)
+                        train_loss.append(loss.item())
+                else:
+                    # print('batch_x:', batch_x.shape, 'batch_x_mark:', batch_x_mark.shape, 'dec_inp:', dec_inp.shape, 'batch_y_mark:', batch_y_mark.shape)
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                    # print('outputs:', outputs.shape)
 
-                f_dim = -1 if self.args.features == 'MS' else 0
-                outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-
-                if self.args.use_discriminator:
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    loss = criterion(outputs, batch_y)
+                    # discriminator loss
                     # 第一行表示真实数据，第二行表示生成数据
                     zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
                     ones = torch.ones_like(outputs[: ,0,  :], dtype=torch.int64, requires_grad=False)
-                    # 计算 discriminator loss，更新discriminator
+                    rand = random.randint(0, 1)
                     discriminator_optim.zero_grad()
-                    # 生成数据
+                    # print('outputs:', outputs.shape)
                     dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
                     dis_argmax = torch.argmax(dis_result, dim=1)
                     correct_count += torch.sum(dis_argmax == ones)
                     sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
                     bundle = torch.cat((dis_result, ones.unsqueeze(1)), 1)
-                    # 真实数据
+                    # print(batch_y.shape)
                     dis_result_batch_y, _ = self.discriminator(batch_y.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
                     dis_argmax = torch.argmax(dis_result_batch_y, dim=1)
                     correct_count += torch.sum(dis_argmax == zeros)
@@ -198,31 +178,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     bundle = bundle[a]
                     dis_loss = discriminator_criterion(bundle[:, 0:2, :], bundle[:, 2, :].to(torch.int64))
                     dis_loss.backward()
-                    # 更新discriminator权重
-                    discriminator_optim.step()
-
-                    # 计算 discriminator loss，更新generator
-                    # 生成数据
-                    dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
-                    dis_loss = discriminator_criterion(dis_result, ones)
-                    dis_loss.backward()
-                    if True: # If option is passed, alternate between the losses instead of using their sum
-                        if self.args.use_amp:
-                            scaler.scale(loss).backward()
-                            scaler.step(model_optim)
-                            scaler.update()
-                        else:
-                            loss.backward()
-                            model_optim.step()
-
-                loss = criterion(outputs, batch_y)
-                train_loss.append(loss.item())
+                    train_loss.append(loss.item())
 
                 if (i + 1) % 10 == 0:
-                    if self.args.use_discriminator:
-                        print('correct_count:', correct_count/sum_count)
-                        correct_count = 0
-                        sum_count = 0
+                    print('correct_count:', correct_count/sum_count)
+                    correct_count = 0
+                    sum_count = 0
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
@@ -242,6 +203,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 else:
                     loss.backward()
                     model_optim.step()
+                    discriminator_optim.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
@@ -280,7 +242,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         with torch.no_grad():
             correct_count = 0
             sum_count = 0
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(tqdm(test_loader)):
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
@@ -294,22 +256,34 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                outputs = self.discriminator_iter(batch_x, dec_inp, batch_x_mark, batch_y_mark)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
 
-                if self.args.use_discriminator:
-                    # print('outputs:', outputs.shape)
-                    # discriminator loss
-                    # 第一行表示真实数据，第二行表示生成数据
-                    zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
-                    ones = torch.ones_like(outputs[: ,0,  :], dtype=torch.int64, requires_grad=False)
-                    dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
-                    dis_argmax = torch.argmax(dis_result, dim=1)
-                    correct_count += torch.sum(dis_argmax == ones)
-                    sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
-                    dis_result_batch_y, _ = self.discriminator(batch_y[:, -self.args.pred_len:, :].detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
-                    dis_argmax = torch.argmax(dis_result_batch_y, dim=1)
-                    correct_count += torch.sum(dis_argmax == zeros)
-                    sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+
+
+                # print('outputs:', outputs.shape)
+                # discriminator loss
+                # 第一行表示真实数据，第二行表示生成数据
+                zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
+                ones = torch.ones_like(outputs[: ,0,  :], dtype=torch.int64, requires_grad=False)
+                dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
+                dis_argmax = torch.argmax(dis_result, dim=1)
+                correct_count += torch.sum(dis_argmax == ones)
+                sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
+                dis_result_batch_y, _ = self.discriminator(batch_y[:, -self.args.pred_len:, :].detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
+                dis_argmax = torch.argmax(dis_result_batch_y, dim=1)
+                correct_count += torch.sum(dis_argmax == zeros)
+                sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -335,8 +309,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
                     visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
 
-        if self.args.use_discriminator:
-            print('correct_count:', correct_count/sum_count)
+        print('correct_count:', correct_count/sum_count)
         preds = np.array(preds)
         trues = np.array(trues)
         print('test shape:', preds.shape, trues.shape)

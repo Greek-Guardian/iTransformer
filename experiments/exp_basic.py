@@ -1,7 +1,7 @@
 import os
 import torch
 from model import Transformer, Informer, Reformer, Flowformer, Flashformer, \
-    iTransformer, iInformer, iReformer, iFlowformer, iFlashformer
+    iTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Discriminator
 
 
 class Exp_Basic(object):
@@ -18,9 +18,12 @@ class Exp_Basic(object):
             'iReformer': iReformer,
             'iFlowformer': iFlowformer,
             'iFlashformer': iFlashformer,
+            'Discriminator': Discriminator
         }
         self.device = self._acquire_device()
-        self.model = self._build_model().to(self.device)
+        self.model, self.discriminator = self._build_model()
+        self.model.to(self.device)
+        self.discriminator.to(self.device)
 
     def _build_model(self):
         raise NotImplementedError

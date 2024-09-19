@@ -20,7 +20,8 @@ python -u run.py \
   --des 'Exp' \
   --itr 1 \
   --train_epochs 3
-
+  # Exit the terminal
+  exit
 python -u run.py \
   --is_training 1 \
   --root_path ./dataset/traffic/ \
