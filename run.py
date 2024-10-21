@@ -87,6 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--partial_start_index', type=int, default=0, help='the start index of variates for partial training, '
                                                                            'you can select [partial_start_index, min(enc_in + partial_start_index, N)]')
     parser.add_argument('--use_discriminator', action='store_true', default=False, help='wether to use discriminator')
+    parser.add_argument('--alternate', type=bool, default=True, help='Alternate between the losses instead of using their sum')
 
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False

@@ -81,9 +81,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
     def discriminator_iter(self, batch_x, batch_y, batch_x_mark, batch_y_mark):
         if self.args.use_discriminator:
-            input_zeros = torch.zeros_like(batch_x[:, :, :], dtype=torch.int64, requires_grad=False)
-            batch_x = torch.cat((batch_x, input_zeros), 2)
-            for _ in range(3):
+            # input_zeros = torch.zeros_like(batch_x[:, :, :], dtype=torch.int64, requires_grad=False)
+            # batch_x = torch.cat((batch_x, input_zeros), 2)
+            for _ in range(1):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if self.args.output_attention:
@@ -95,18 +95,19 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)[0]
                     else:
                         outputs = self.model(batch_x, batch_x_mark, batch_y, batch_y_mark)
-                outputs = outputs[:, :, :self.args.enc_in]
+                # outputs = outputs[:, :, :self.args.enc_in]
                 # print('outputs:', outputs.shape)
                 # zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
-                ones = torch.ones_like(outputs[: ,0,  0:self.args.enc_in], dtype=torch.int64, requires_grad=False)
+                # ones = torch.ones_like(outputs[: ,0,  0:self.args.enc_in], dtype=torch.int64, requires_grad=False)
+                ones = torch.ones_like(outputs[:, 0, :], dtype=torch.int64, requires_grad=False)
                 dis_result, hidden_state = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
                 dis_argmax = torch.argmax(dis_result, dim=1)
                 correct_count = torch.sum(dis_argmax == ones)
                 sum_count = dis_argmax.shape[0] * dis_argmax.shape[1]
                 if correct_count/sum_count > 0.8:
                     break
-                else:
-                    batch_x[:, :, -self.args.enc_in:] = hidden_state
+                # else:
+                #     batch_x[:, :, -self.args.enc_in:] = hidden_state
         else:
             if self.args.use_amp:
                 with torch.cuda.amp.autocast():
@@ -122,6 +123,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         return outputs
 
     def train(self, setting):
+        # torch.autograd.set_detect_anomaly(True)
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
@@ -151,8 +153,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             correct_count = 0
             sum_count = 0
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                # 清空显卡缓存
-                torch.cuda.empty_cache()
 
                 iter_count += 1
                 model_optim.zero_grad()
@@ -179,7 +179,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     # 第一行表示真实数据，第二行表示生成数据
                     zeros = torch.zeros_like(outputs[: , 0, :], dtype=torch.int64, requires_grad=False)
                     ones = torch.ones_like(outputs[: ,0,  :], dtype=torch.int64, requires_grad=False)
-                    # 计算 discriminator loss，更新discriminator
+
+                    # 更新discriminator
                     discriminator_optim.zero_grad()
                     # 生成数据
                     dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
@@ -193,6 +194,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     correct_count += torch.sum(dis_argmax == zeros)
                     sum_count += dis_argmax.shape[0] * dis_argmax.shape[1]
                     tmp = torch.cat((dis_result_batch_y, zeros.unsqueeze(1)), 1)
+                    # 合并两种数据的output，并打乱它们
                     bundle = torch.cat((bundle, tmp), 0)
                     a = torch.randperm(bundle.shape[0])
                     bundle = bundle[a]
@@ -201,22 +203,27 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     # 更新discriminator权重
                     discriminator_optim.step()
 
-                    # 计算 discriminator loss，更新generator
+                    # 更新generator（label loss）
                     # 生成数据
-                    dis_result, _ = self.discriminator(outputs.detach(), batch_y_mark[:, -self.args.pred_len:, :], None, None)
-                    dis_loss = discriminator_criterion(dis_result, ones)
-                    dis_loss.backward()
-                    if True: # If option is passed, alternate between the losses instead of using their sum
-                        if self.args.use_amp:
-                            scaler.scale(loss).backward()
-                            scaler.step(model_optim)
-                            scaler.update()
-                        else:
-                            loss.backward()
-                            model_optim.step()
+                    # discriminator_optim.zero_grad()
+                    # model_optim.zero_grad()
+                    # dis_result, _ = self.discriminator(outputs, batch_y_mark[:, -self.args.pred_len:, :], None, None)
+                    # dis_loss = discriminator_criterion(dis_result, ones)
+                    # if self.args.alternate: # Alternate between the losses instead of using their sum
+                    #     dis_loss.backward()
+                    #     model_optim.step()
 
+                # 更新generator（MSE loss）
+                model_optim.zero_grad()
+                outputs = self.discriminator_iter(batch_x, dec_inp, batch_x_mark, batch_y_mark)
                 loss = criterion(outputs, batch_y)
                 train_loss.append(loss.item())
+                loss.backward()
+                model_optim.step()
+
+                if self.args.alternate is False: # Alternate between the losses instead of using their sum
+                    dis_loss.backward()
+                    model_optim.step()
 
                 if (i + 1) % 10 == 0:
                     if self.args.use_discriminator:
@@ -234,14 +241,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     # fake = self.model(batch_x[0:1, :, :], batch_x_mark[0:1, :, :], dec_inp[0:1, :, :], batch_y_mark[0:1, :, :])
                     # print('real result:', self.discriminator(real, batch_y_mark[0:1, -self.args.pred_len:, :], None, None))
                     # print('fake result:', self.discriminator(fake.detach(), batch_y_mark[0:1, -self.args.pred_len:, :], None, None))
-
-                if self.args.use_amp:
-                    scaler.scale(loss).backward()
-                    scaler.step(model_optim)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    model_optim.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)

@@ -1,5 +1,5 @@
 # export CUDA_VISIBLE_DEVICES=2
-export CUDA_LAUNCH_BLOCKING=1
+# export CUDA_LAUNCH_BLOCKING=1
 
 model_name=iTransformer
 
@@ -23,4 +23,8 @@ python -u run.py \
   --batch_size 16 \
   --learning_rate 0.001 \
   --itr 1 \
-  --train_epochs 1
+  --train_epochs 100 \
+  --use_discriminator \
+  --use_multi_gpu \
+  --devices 0,1 \
+  --patience 15
