@@ -36,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
 
     # model define
+    parser.add_argument('--load_path', type=str, default=None, help='the path of the model that you want to load')
     parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
     parser.add_argument('--dec_in', type=int, default=7, help='decoder input size')
     parser.add_argument('--c_out', type=int, default=7, help='output size') # applicable on arbitrary number of variates in inverted Transformers
@@ -55,6 +56,7 @@ if __name__ == '__main__':
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in ecoder')
     parser.add_argument('--do_predict', action='store_true', help='whether to predict unseen future data')
+    parser.add_argument('--no_embedding', action='store_true', help='whether to use embedding', default=False)
 
     # optimization
     parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')

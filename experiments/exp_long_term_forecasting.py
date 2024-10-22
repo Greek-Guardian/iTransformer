@@ -9,6 +9,7 @@ import os
 import time
 import warnings
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 warnings.filterwarnings('ignore')
 
@@ -22,6 +23,19 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
+
+        if self.args.load_path:
+            model.load_state_dict(torch.load(self.args.load_path))  # 加载.pth文件的模型参数
+
+        # 将 model.module.enc_embedding.value_embedding.weight 赋值为eye矩阵，将bias设置为0，并且将二者设置为不可训练
+        if self.args.no_embedding:
+            with torch.no_grad():
+                model.module.enc_embedding.value_embedding.weight.copy_( \
+                    torch.eye(model.module.enc_embedding.value_embedding.weight.size(0), model.module.enc_embedding.value_embedding.weight.size(1)) \
+                        )
+                model.module.enc_embedding.value_embedding.bias.zero_()
+                model.module.enc_embedding.value_embedding.weight.requires_grad = False
+                model.module.enc_embedding.value_embedding.bias.requires_grad = False
         return model
 
     def _get_data(self, flag):
@@ -80,6 +94,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         return total_loss
 
     def train(self, setting):
+        writer = SummaryWriter( \
+            '/home/liangzida/workspace/iTransformer/output/tensorboard/' + setting + '/' + ('no_embedding' if self.args.no_embedding else 'embedding') + '/' + str(time.time()))
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
@@ -144,6 +160,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     loss = criterion(outputs, batch_y)
+                    writer.add_scalar('Loss/train', loss.item(), epoch * len(train_loader) + i)
                     train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
@@ -181,13 +198,15 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
+        writer.close()
+
         return self.model
 
     def test(self, setting, test=0):
         test_data, test_loader = self._get_data(flag='test')
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + self.args.model + '/' + setting, 'checkpoint.pth')))
 
         preds = []
         trues = []
