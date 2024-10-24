@@ -10,6 +10,7 @@ import time
 import warnings
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+import glob
 
 warnings.filterwarnings('ignore')
 
@@ -28,14 +29,25 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             model.load_state_dict(torch.load(self.args.load_path))  # 加载.pth文件的模型参数
 
         # 将 model.module.enc_embedding.value_embedding.weight 赋值为eye矩阵，将bias设置为0，并且将二者设置为不可训练
-        if self.args.no_embedding:
-            with torch.no_grad():
-                model.module.enc_embedding.value_embedding.weight.copy_( \
-                    torch.eye(model.module.enc_embedding.value_embedding.weight.size(0), model.module.enc_embedding.value_embedding.weight.size(1)) \
-                        )
-                model.module.enc_embedding.value_embedding.bias.zero_()
-                model.module.enc_embedding.value_embedding.weight.requires_grad = False
-                model.module.enc_embedding.value_embedding.bias.requires_grad = False
+        # if self.args.no_embedding:
+        with torch.no_grad():
+            if self.args.model_structure in [1, 4, 5]:
+                if self.args.seq_len == self.args.d_model:
+                    model.module.enc_embedding.value_embedding.weight.copy_( \
+                        torch.eye(model.module.enc_embedding.value_embedding.weight.size(0), model.module.enc_embedding.value_embedding.weight.size(1)) \
+                            )
+                    model.module.enc_embedding.value_embedding.bias.zero_()
+                    model.module.enc_embedding.value_embedding.weight.requires_grad = False
+                    model.module.enc_embedding.value_embedding.bias.requires_grad = False
+                else:
+                    for param in model.module.enc_embedding.value_embedding.parameters():
+                        param.requires_grad = False
+            if self.args.model_structure in [2, 4, 6]:
+                for param in model.module.encoder.parameters():
+                    param.requires_grad = False
+            if self.args.model_structure in [3, 5, 6]:
+                for param in model.module.projector.parameters():
+                    param.requires_grad = False
         return model
 
     def _get_data(self, flag):
@@ -83,26 +95,23 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                pred = outputs.detach().cpu()
-                true = batch_y.detach().cpu()
+                pred = outputs.detach()#.cpu()
+                true = batch_y.detach()#.cpu()
 
                 loss = criterion(pred, true)
 
-                total_loss.append(loss)
+                total_loss.append(loss.item())
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
 
-    def train(self, setting):
-        writer = SummaryWriter( \
-            '/home/liangzida/workspace/iTransformer/output/tensorboard/' + setting + '/' + ('no_embedding' if self.args.no_embedding else 'embedding') + '/' + str(time.time()))
+    def train(self, iter=None):
+        # writer = SummaryWriter( \
+        #     './output/tensorboard/' + self.setting + '/' + ('no_embedding' if self.args.no_embedding else 'embedding') + '/' + str(time.time()))
+        writer = SummaryWriter(self.save_dir)
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-
-        path = os.path.join(self.args.checkpoints, setting)
-        if not os.path.exists(path):
-            os.makedirs(path)
 
         time_now = time.time()
 
@@ -186,31 +195,41 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
-            early_stopping(vali_loss, self.model, path)
+            if not os.path.exists(self.save_dir+'/checkpoints'):
+                os.makedirs(self.save_dir+'/checkpoints')
+            early_stopping(vali_loss, self.model, self.save_dir+'/checkpoints/'+ str(time.time())+f"_trainloss{train_loss:.2f}_"+f"testloss{test_loss:.2f}_"+f"valloss{vali_loss:.2f}_"+'.pth')
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
 
             adjust_learning_rate(model_optim, epoch + 1, self.args)
 
-            # get_cka(self.args, setting, self.model, train_loader, self.device, epoch)
-
-        best_model_path = path + '/' + 'checkpoint.pth'
+            # get_cka(self.args, self.setting, self.model, train_loader, self.device, epoch)
+        # 寻找save_path下的最新文件，赋值给best_model_path
+        list_of_files = glob.glob(self.save_dir+'/checkpoints/' + '/*.pth')
+        latest_file = max(list_of_files, key=os.path.getctime)
+        best_model_path = latest_file
+        # best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
         writer.close()
 
         return self.model
 
-    def test(self, setting, test=0):
+    def test(self, test=0, iter=None):
         test_data, test_loader = self._get_data(flag='test')
+        # load path
+        # 寻找save_path下的最新文件，赋值给best_model_path
+        list_of_files = glob.glob(self.save_dir+'/checkpoints/' + '/*.pth')
+        latest_file = max(list_of_files, key=os.path.getctime)
+        best_model_path = latest_file
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + self.args.model + '/' + setting, 'checkpoint.pth')))
+            self.model.load_state_dict(torch.load(best_model_path))
 
         preds = []
         trues = []
-        folder_path = './test_results/' + setting + '/'
+        folder_path = self.save_dir + '/test_results/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
@@ -276,14 +295,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         print('test shape:', preds.shape, trues.shape)
 
         # result save
-        folder_path = './results/' + setting + '/'
+        folder_path = self.save_dir + '/results/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
         mae, mse, rmse, mape, mspe = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         f = open("result_long_term_forecast.txt", 'a')
-        f.write(setting + "  \n")
+        f.write(self.save_dir + "\n")
         f.write('mse:{}, mae:{}'.format(mse, mae))
         f.write('\n')
         f.write('\n')
@@ -296,13 +315,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         return
 
 
-    def predict(self, setting, load=False):
+    def predict(self, load=False):
         pred_data, pred_loader = self._get_data(flag='pred')
 
         if load:
-            path = os.path.join(self.args.checkpoints, setting)
-            best_model_path = path + '/' + 'checkpoint.pth'
-            self.model.load_state_dict(torch.load(best_model_path))
+            # path = os.path.join(self.args.checkpoints, self.setting)
+            # best_model_path = path + '/' + 'checkpoint.pth'
+            self.model.load_state_dict(torch.load(self.args.load_path))
 
         preds = []
 
@@ -339,7 +358,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
 
         # result save
-        folder_path = './results/' + setting + '/'
+        folder_path = self.save_dir + '/results/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 

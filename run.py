@@ -4,12 +4,19 @@ from experiments.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from experiments.exp_long_term_forecasting_partial import Exp_Long_Term_Forecast_Partial
 import random
 import numpy as np
+import setproctitle
+import atexit
 
 if __name__ == '__main__':
     fix_seed = 2023
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
     np.random.seed(fix_seed)
+
+    # 确保程序退出时清理GPU内存
+    def cleanup():
+        torch.cuda.empty_cache()
+    atexit.register(cleanup)
 
     parser = argparse.ArgumentParser(description='iTransformer')
 
@@ -56,7 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in ecoder')
     parser.add_argument('--do_predict', action='store_true', help='whether to predict unseen future data')
-    parser.add_argument('--no_embedding', action='store_true', help='whether to use embedding', default=False)
+    parser.add_argument('--model_structure', type=int, help='which part being require_grad=False', default=0)
 
     # optimization
     parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
@@ -106,63 +113,26 @@ if __name__ == '__main__':
     else: # MTSF: multivariate time series forecasting
         Exp = Exp_Long_Term_Forecast
 
+    # 更改进程名称
+    setproctitle.setproctitle("iTransformer exp")
 
     if args.is_training:
         for ii in range(args.itr):
-            # setting record of experiments
-            setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
-                args.model_id,
-                args.model,
-                args.data,
-                args.features,
-                args.seq_len,
-                args.label_len,
-                args.pred_len,
-                args.d_model,
-                args.n_heads,
-                args.e_layers,
-                args.d_layers,
-                args.d_ff,
-                args.factor,
-                args.embed,
-                args.distil,
-                args.des,
-                args.class_strategy, ii)
-
             exp = Exp(args)  # set experiments
-            print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-            exp.train(setting)
+            print('>>>>>>> start training >>>>>>>>>>>>>>>>>>>>>>>>>>')
+            exp.train(iter=ii)
 
-            print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-            exp.test(setting)
+            print('>>>>>>> testing <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+            exp.test(iter=ii)
 
             if args.do_predict:
-                print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-                exp.predict(setting, True)
+                print('>>>>>>> predicting <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+                exp.predict(True, iter=ii)
 
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
-            args.model_id,
-            args.model,
-            args.data,
-            args.features,
-            args.seq_len,
-            args.label_len,
-            args.pred_len,
-            args.d_model,
-            args.n_heads,
-            args.e_layers,
-            args.d_layers,
-            args.d_ff,
-            args.factor,
-            args.embed,
-            args.distil,
-            args.des,
-            args.class_strategy, ii)
-
         exp = Exp(args)  # set experiments
-        print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-        exp.test(setting, test=1)
+        print('>>>>>>> testing <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+        exp.test(test=1, iter=ii)
         torch.cuda.empty_cache()

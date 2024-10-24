@@ -138,3 +138,5 @@ RESULT/
 nohup.out
 result_long_term_forecast.txt
 runs/
+outputs/
+junk/
