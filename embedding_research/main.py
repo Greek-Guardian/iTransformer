@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
+from contextlib import nullcontext
 import os, time, json, sys
 os.chdir('/home/liangzida/workspace/iTransformer') # 更改工作目录到项目根目录
 sys.path.append('/home/liangzida/workspace/iTransformer') # 添加模块路径到 sys.path
@@ -26,7 +27,7 @@ class Args():
         self.seq_len = 24
         self.pred_len = 24
 
-        self.d_model = 24
+        self.d_model = 12
         self.enc_layers=2
         self.dec_layers=2
         self.dropout=0.5
@@ -37,6 +38,9 @@ class Args():
         self.kld_loss_weight=0.00025
 
         self.loss = 'mse'
+        self.structure = 'VAE' # optionlal: 'Normal', 'VAE'
+
+        self.use_profiler = False
 
 def save(args, enc_dec_small_patch, dir_path):
     torch.save(enc_dec_small_patch, dir_path + '/model.pth')
@@ -61,9 +65,10 @@ if __name__ == '__main__':
         record_shapes=True,
         profile_memory=True,
         with_stack=True
-    ) as prof:
+    ) if args.use_profiler else nullcontext() as prof:
         data_set, data_loader = data_provider(args, flag='train')
         enc_dec_small_patch = encoder_decoder_small_patch(input_dim=args.seq_len, d_model=args.d_model, output_dim=args.seq_len, \
+                                                            structure=args.structure,\
                                                             enc_layers=args.enc_layers, dec_layers=args.dec_layers, dropout=args.dropout,\
                                                             bidirectional=args.bidirectional, lstm_num_layers=args.lstm_num_layers, lstm_hidden_size=args.lstm_hidden_size,\
                                                             lstm_resnet=args.lstm_resnet).to(device)

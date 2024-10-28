@@ -20,9 +20,13 @@ def eval(args, enc_dec_small_patch, save_path, device='cuda'):
             B, L, C = x.shape
             x = torch.reshape(x, shape=[B*C, L]).to(device).float()
             y = torch.reshape(y[:, -args.pred_len:, :], shape=[B*C, L]).to(device).float()
-            x_recover, _, _, _, _ = enc_dec_small_patch(x)
+            if args.structure == 'Normal':
+                x_recover = enc_dec_small_patch(x)
+            elif args.structure == 'VAE':
+                x_recover, _, _, _, _ = enc_dec_small_patch(x)
             criterion = nn.MSELoss()
             mse = criterion(x_recover, x)
+            mae = torch.mean(torch.abs(x_recover - x))
             x = x.cpu().detach().numpy()
             x_recover = x_recover.cpu().detach().numpy()
             # 在同一张图上，按照列添加子图，画出前五个原始数据和重构数据
@@ -33,5 +37,5 @@ def eval(args, enc_dec_small_patch, save_path, device='cuda'):
                 axs[i].legend()
             plt.tight_layout()
             plt.show()
-            save_plot(fig, save_path, "{:.3f}".format(mse.item())+'_'+flag+'_reconstructed_data.png')
+            save_plot(fig, save_path, flag+"_mse{:.3f}_".format(mse.item())+'mae{:.3f}_'.format(mae.item())+'.png')
             break

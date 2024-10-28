@@ -10,19 +10,21 @@ class Norm(nn.Module):
 
     def forward(self, input, flag):
         if flag=='normalize':
-            self.mean = torch.mean(input, dim=0, keepdim=True)
-            self.std = (torch.std(input, dim=0, keepdim=True) + 1e-8)
+            self.mean = torch.mean(input, dim=1, keepdim=True)
+            self.std = (torch.std(input, dim=1, keepdim=True) + 1e-8)
             return (input - self.mean) / self.std
         else:
             return input * self.std + self.mean
 
 class encoder_decoder_small_patch(nn.Module):
-    def __init__(self, input_dim, d_model, output_dim, enc_layers=3, dec_layers=3, dropout=0.5, bidirectional=True, lstm_num_layers=2, lstm_hidden_size=8, lstm_resnet=True):
+    def __init__(self, input_dim, d_model, output_dim, structure='VAE', enc_layers=3, dec_layers=3, dropout=0.5, bidirectional=True, lstm_num_layers=2, lstm_hidden_size=8, lstm_resnet=True):
         super(encoder_decoder_small_patch, self).__init__()
         self.input_dim = input_dim
         self.d_model = d_model
+        self.output_dim = output_dim
+        self.structure = structure
         self.norm = Norm()
-        self.encoder = Encoder(input_dim, d_model, layer_num=enc_layers, dropout=dropout, activation=nn.LeakyReLU())
+        self.encoder = Encoder(input_dim, d_model, structure=structure, layer_num=enc_layers, dropout=dropout, activation=nn.LeakyReLU())
         self.decoder = Decoder(d_model, \
                                 output_dim, \
                                 layer_num=dec_layers, \
@@ -47,9 +49,15 @@ class encoder_decoder_small_patch(nn.Module):
 
     def forward(self, input):
         output = self.norm(input, 'normalize')
-        mean, logvar = self.encoder(output)
-        z = self.normal_sample(mean, logvar)
-        loss_vae = self.log_density_gaussian(z, mean, logvar)
-        output = self.decoder(z)
-        output = self.norm(output, 'denormalize')
-        return output, loss_vae, mean, torch.exp(.5*logvar), z
+        if self.structure == 'Normal':
+            output = self.encoder(output)
+            output = self.decoder(output)
+            output = self.norm(output, 'denormalize')
+            return output
+        elif self.structure == 'VAE':
+            mean, logvar = self.encoder(output)
+            z = self.normal_sample(mean, logvar)
+            loss_vae = self.log_density_gaussian(z, mean, logvar)
+            output = self.decoder(z)
+            output = self.norm(output, 'denormalize')
+            return output, loss_vae, mean, torch.exp(.5*logvar), z

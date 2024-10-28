@@ -2,12 +2,13 @@ import torch
 import torch.nn as nn
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, d_model, layer_num=3, dropout=0.5, activation=nn.LeakyReLU()):
+    def __init__(self, input_dim, d_model, structure='VAE', layer_num=3, dropout=0.5, activation=nn.LeakyReLU()):
         super(Encoder, self).__init__()
         self.activation = activation
         self.layer_num = layer_num
         self.input_dim = input_dim
         self.d_model = d_model
+        self.structure = structure
         self.layer1_dim = 16
         self.cnns = nn.ModuleList()
         self.cnns.append(nn.Conv1d(in_channels=1, out_channels=self.layer1_dim, kernel_size=3, stride=1, padding=1))
@@ -23,8 +24,11 @@ class Encoder(nn.Module):
 
         self.flatten = nn.Flatten()
         self.flatten_dim = int(self.layer1_dim * self.input_dim / 2)
-        self.mean_linear = nn.Linear(self.flatten_dim, d_model)
-        self.log_var_linear = nn.Linear(self.flatten_dim, d_model)
+        if self.structure == 'Normal':
+            self.linear = nn.Linear(self.flatten_dim, d_model)
+        elif self.structure == 'VAE':
+            self.mean_linear = nn.Linear(self.flatten_dim, d_model)
+            self.log_var_linear = nn.Linear(self.flatten_dim, d_model)
 
     def forward(self, input):
         output = input.unsqueeze(1)
@@ -32,9 +36,13 @@ class Encoder(nn.Module):
             output = self.cnns[i](output)
 
         output = self.flatten(output)
-        mean = self.mean_linear(output)
-        log_var = self.log_var_linear(output)
-        return mean, log_var
+        if self.structure == 'Normal':
+            output = self.linear(output)
+            return output
+        elif self.structure == 'VAE':
+            mean = self.mean_linear(output)
+            log_var = self.log_var_linear(output)
+            return mean, log_var
 
 class Decoder(nn.Module):
     def __init__(self, d_model, output_dim, layer_num=3, dropout=0.5, activation=nn.Sigmoid(), bidirectional=True, lstm_num_layers=2, hidden_size=8, resnet=True):
