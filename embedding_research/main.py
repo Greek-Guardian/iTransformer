@@ -28,8 +28,8 @@ class Args():
         self.pred_len = 96
 
         self.d_model = 512
-        self.enc_layers=2
-        self.dec_layers=2
+        self.enc_layers=1
+        self.dec_layers=1
         self.dropout=0.5
         self.bidirectional=True
         self.enc_cnn_layer1_dim=32

@@ -64,17 +64,24 @@ class encoder_decoder_small_patch(nn.Module):
         output = self.norm(output, 'denormalize')
         return output
 
-    def forward(self, input):
-        output = self.norm(input, 'normalize')
-        if self.structure == 'Normal':
-            output = self.encoder(output)
-            output = self.decoder(output)
-            output = self.norm(output, 'denormalize')
-            return output
-        elif self.structure == 'VAE':
-            mean, logvar = self.encoder(output)
-            z = self.normal_sample(mean, logvar)
-            loss_vae = self.log_density_gaussian(z, mean, logvar)
-            output = self.decoder(z)
-            output = self.norm(output, 'denormalize')
-            return output, loss_vae, mean, torch.exp(.5*logvar), z
+    def forward(self, input, flag='pretrain'):
+        if flag == 'pretrain':
+            output = self.norm(input, 'normalize')
+            if self.structure == 'Normal':
+                output = self.encoder(output)
+                output = self.decoder(output)
+                output = self.norm(output, 'denormalize')
+                return output
+            elif self.structure == 'VAE':
+                mean, logvar = self.encoder(output)
+                z = self.normal_sample(mean, logvar)
+                loss_vae = self.log_density_gaussian(z, mean, logvar)
+                output = self.decoder(z)
+                output = self.norm(output, 'denormalize')
+                return output, loss_vae, mean, torch.exp(.5*logvar), z
+        elif flag == 'ts2z':
+            return self.ts2z(input)
+        elif flag == 'z2ts':
+            return self.z2ts(input)
+        else:
+            raise ValueError('encoder_decoder_small_patch forward flag not recognized')

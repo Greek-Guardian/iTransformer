@@ -27,7 +27,10 @@ def tfm_train(args, data_loader, dir_path, model, prof=None):
                 # x = torch.reshape(x.to(device), shape=[B*C, L]).float()
                 # y = torch.reshape(y.to(device)[:, -args.pred_len:, :], shape=[B*C, L]).float()
                 optimizer.zero_grad()
-                y_pred = model(x, x_mark, y, y_mark)
+                if args.joint_train and args.supervised_joint_train:
+                    y_pred, x_reconstructed, loss_vae = model(x, x_mark, y, y_mark)
+                else:
+                    y_pred = model(x, x_mark, y, y_mark)
                 smoothL1_loss = criterion(y, y_pred)
                 mse_loss = criterion_mse(y, y_pred)
                 mae_loss = torch.mean(torch.abs(y - y_pred))
@@ -36,6 +39,12 @@ def tfm_train(args, data_loader, dir_path, model, prof=None):
                 writer.add_scalar('Loss/SmoothL1Loss',    smoothL1_loss.item(),     epoch_count * len(data_loader) + ii)
                 writer.add_scalar('Metrics/mse',          mse_loss.item(),          epoch_count * len(data_loader) + ii)
                 writer.add_scalar('Metrics/mae',          mae_loss.item(),          epoch_count * len(data_loader) + ii)
+                if args.joint_train and args.supervised_joint_train:
+                    supervised_loss_mse = criterion_mse(x, x_reconstructed)
+                    loss_vae = loss_vae * args.kld_loss_weight
+                    loss = loss + supervised_loss_mse.mean() + loss_vae.mean()
+                    writer.add_scalar('Loss/supervised_loss_mse', supervised_loss_mse.mean().item(), epoch_count * len(data_loader) + ii)
+                    writer.add_scalar('Loss/supervised_loss_vae', loss_vae.mean().item(), epoch_count * len(data_loader) + ii)
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -61,7 +70,7 @@ def tfm_eval(args, model, save_path, device='cuda'):
             x_mark = x_mark.to(device).float()
             # x = torch.reshape(x.to(device), shape=[B*C, L]).float()
             # y = torch.reshape(y.to(device)[:, -args.pred_len:, :], shape=[B*C, L]).float()
-            y_pred = model(x, x_mark, y, y_mark)
+            y_pred = model(x_enc=x, x_mark_enc=x_mark, x_dec=y, x_mark_dec=y_mark, flag='eval')
             criterion = nn.MSELoss()
             mse = criterion(y, y_pred)
             mae = torch.mean(torch.abs(y - y_pred))

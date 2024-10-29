@@ -28,8 +28,8 @@ class Args():
         self.pred_len = 96
 
         self.d_model = 512
-        self.enc_layers=2
-        self.dec_layers=2
+        self.enc_layers=1
+        self.dec_layers=1
         self.dropout=0.5
         self.bidirectional=True
         self.enc_cnn_layer1_dim=32
@@ -41,7 +41,10 @@ class Args():
         self.loss = 'mse'
         self.structure = 'VAE' # optionlal: 'Normal', 'VAE'
 
-        self.use_pretrained_emb = False
+        self.use_pretrained_emb = True
+        self.joint_train = True
+        self.supervised_joint_train = True
+
         self.output_attention = True
         self.use_norm = 1
         self.class_strategy = 'projection'
@@ -53,7 +56,7 @@ class Args():
         self.e_layers = 2
 
         self.use_profiler = False
-        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-28-19-42-28/seqlen96d_model512enc_layers2dec_layers2/model.pth'
+        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-29-10-26-21/seqlen96d_model512enc_layers1dec_layers1/model.pth'
 
 def save(args, enc_dec_small_patch, dir_path):
     torch.save(enc_dec_small_patch, dir_path + '/model.pth')
@@ -80,21 +83,7 @@ if __name__ == '__main__':
         with_stack=True
     ) if args.use_profiler else nullcontext() as prof:
         data_set, data_loader = data_provider(args, flag='train')
-        enc_dec_small_patch = encoder_decoder_small_patch(input_dim=args.seq_len, d_model=args.d_model, output_dim=args.seq_len, \
-                                                            structure=args.structure,\
-                                                            enc_layers=args.enc_layers, dec_layers=args.dec_layers, dropout=args.dropout, enc_cnn_layer1_dim=args.enc_cnn_layer1_dim,\
-                                                            bidirectional=args.bidirectional, lstm_num_layers=args.lstm_num_layers, lstm_hidden_size=args.lstm_hidden_size,\
-                                                            lstm_resnet=args.lstm_resnet).to(device)
-        # 加载模型
-        if args.use_pretrained_emb:
-            if args.emb_model_path:
-                enc_dec_small_patch.load_state_dict(torch.load(args.emb_model_path).module.state_dict())
-                # enc_dec_small_patch = enc_dec_small_patch.to(device)
-            for param in enc_dec_small_patch.parameters():
-                param.requires_grad = False
-        else:
-            enc_dec_small_patch = None
-        model = iTransformer(args, enc_dec_small_patch).to(device)
+        model = iTransformer(args).to(device)
         model = nn.parallel.DataParallel(model, device_ids=[0, 1])
         try:
             tfm_train(args, data_loader, dir_path, model, prof)
