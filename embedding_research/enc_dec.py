@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, d_model, structure='VAE', layer_num=3, dropout=0.5, activation=nn.LeakyReLU()):
+    def __init__(self, input_dim, d_model, layer1_dim=16, structure='VAE', layer_num=3, dropout=0.5, activation=nn.LeakyReLU()):
         super(Encoder, self).__init__()
         self.activation = activation
         self.layer_num = layer_num
         self.input_dim = input_dim
         self.d_model = d_model
         self.structure = structure
-        self.layer1_dim = 16
+        self.layer1_dim = layer1_dim
         self.cnns = nn.ModuleList()
         self.cnns.append(nn.Conv1d(in_channels=1, out_channels=self.layer1_dim, kernel_size=3, stride=1, padding=1))
         # self.cnns.append(nn.Dropout(dropout))

@@ -6,9 +6,9 @@ import os, time, json, sys
 os.chdir('/home/liangzida/workspace/iTransformer') # 更改工作目录到项目根目录
 sys.path.append('/home/liangzida/workspace/iTransformer') # 添加模块路径到 sys.path
 from data_provider.data_factory import data_provider
+from large_emb_iTransfomer import iTransformer
 from backbone import encoder_decoder_small_patch
-from train import train
-from eval import eval
+from forcast_utils import tfm_train, tfm_eval
 
 class Args():
     def __init__(self):
@@ -41,7 +41,19 @@ class Args():
         self.loss = 'mse'
         self.structure = 'VAE' # optionlal: 'Normal', 'VAE'
 
+        self.use_pretrained_emb = False
+        self.output_attention = True
+        self.use_norm = 1
+        self.class_strategy = 'projection'
+        self.factor = 1
+        self.n_heads = 8
+        self.d_ff = 2048
+        self.tfm_dropout = 0.1
+        self.tfm_activation = 'gelu'
+        self.e_layers = 2
+
         self.use_profiler = False
+        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-28-19-42-28/seqlen96d_model512enc_layers2dec_layers2/model.pth'
 
 def save(args, enc_dec_small_patch, dir_path):
     torch.save(enc_dec_small_patch, dir_path + '/model.pth')
@@ -51,7 +63,7 @@ def save(args, enc_dec_small_patch, dir_path):
 if __name__ == '__main__':
     args = Args()
     device = 'cuda'
-    dir_path = '/home/liangzida/workspace/iTransformer/junk/encdec/' + time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '/'\
+    dir_path = '/home/liangzida/workspace/iTransformer/junk/forcast_emb/' + time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '/'\
                     + 'seqlen' + str(args.seq_len) + 'd_model' + str(args.d_model) + 'enc_layers' + str(args.enc_layers)\
                     + 'dec_layers' + str(args.dec_layers)
     os.makedirs(dir_path)
@@ -73,18 +85,28 @@ if __name__ == '__main__':
                                                             enc_layers=args.enc_layers, dec_layers=args.dec_layers, dropout=args.dropout, enc_cnn_layer1_dim=args.enc_cnn_layer1_dim,\
                                                             bidirectional=args.bidirectional, lstm_num_layers=args.lstm_num_layers, lstm_hidden_size=args.lstm_hidden_size,\
                                                             lstm_resnet=args.lstm_resnet).to(device)
-        enc_dec_small_patch = nn.parallel.DataParallel(enc_dec_small_patch, device_ids=[0, 1])
+        # 加载模型
+        if args.use_pretrained_emb:
+            if args.emb_model_path:
+                enc_dec_small_patch.load_state_dict(torch.load(args.emb_model_path).module.state_dict())
+                # enc_dec_small_patch = enc_dec_small_patch.to(device)
+            for param in enc_dec_small_patch.parameters():
+                param.requires_grad = False
+        else:
+            enc_dec_small_patch = None
+        model = iTransformer(args, enc_dec_small_patch).to(device)
+        model = nn.parallel.DataParallel(model, device_ids=[0, 1])
         try:
-            train(args, data_loader, dir_path, enc_dec_small_patch, prof)
-            eval(args, enc_dec_small_patch, dir_path)
-            save(args, enc_dec_small_patch, dir_path)
+            tfm_train(args, data_loader, dir_path, model, prof)
+            save(args, model, dir_path)
+            tfm_eval(args, model, dir_path)
             print("Training ends. Model saved.")
         except KeyboardInterrupt:
-            eval(args, enc_dec_small_patch, dir_path)
-            save(args, enc_dec_small_patch, dir_path)
+            save(args, model, dir_path)
+            tfm_eval(args, model, dir_path)
             print("Program interrupted. Model saved.")
         except Exception as e:
-            eval(args, enc_dec_small_patch, dir_path)
-            save(args, enc_dec_small_patch, dir_path)
+            save(args, model, dir_path)
+            tfm_eval(args, model, dir_path)
             print("Program interrupted. Model saved.")
             print(f"An error occurred: {e}")

@@ -17,14 +17,14 @@ class Norm(nn.Module):
             return input * self.std + self.mean
 
 class encoder_decoder_small_patch(nn.Module):
-    def __init__(self, input_dim, d_model, output_dim, structure='VAE', enc_layers=3, dec_layers=3, dropout=0.5, bidirectional=True, lstm_num_layers=2, lstm_hidden_size=8, lstm_resnet=True):
+    def __init__(self, input_dim, d_model, output_dim, structure='VAE', enc_layers=3, dec_layers=3, enc_cnn_layer1_dim=16, dropout=0.5, bidirectional=True, lstm_num_layers=2, lstm_hidden_size=8, lstm_resnet=True):
         super(encoder_decoder_small_patch, self).__init__()
         self.input_dim = input_dim
         self.d_model = d_model
         self.output_dim = output_dim
         self.structure = structure
         self.norm = Norm()
-        self.encoder = Encoder(input_dim, d_model, structure=structure, layer_num=enc_layers, dropout=dropout, activation=nn.LeakyReLU())
+        self.encoder = Encoder(input_dim, d_model, layer1_dim=enc_cnn_layer1_dim, structure=structure, layer_num=enc_layers, dropout=dropout, activation=nn.LeakyReLU())
         self.decoder = Decoder(d_model, \
                                 output_dim, \
                                 layer_num=dec_layers, \
@@ -46,6 +46,23 @@ class encoder_decoder_small_patch(nn.Module):
         eps = dist.sample(mean.shape).cuda()
         z = mean + torch.exp(.5*logvar) * eps
         return z
+
+    def ts2z(self, input):
+        '''input: [B*N, L], output: [B*N, E]'''
+        normalized_input = self.norm(input, 'normalize')
+        if self.structure == 'Normal':
+            z = self.encoder(normalized_input)
+            return z
+        elif self.structure == 'VAE':
+            mean, logvar = self.encoder(normalized_input)
+            z = self.normal_sample(mean, logvar)
+            return z
+
+    def z2ts(self, z):
+        '''input:[B*N, E], ouput: [B*N, L]'''
+        output = self.decoder(z)
+        output = self.norm(output, 'denormalize')
+        return output
 
     def forward(self, input):
         output = self.norm(input, 'normalize')
