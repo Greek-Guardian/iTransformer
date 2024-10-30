@@ -9,7 +9,8 @@ from data_provider.data_factory import data_provider
 from large_emb_iTransfomer import iTransformer
 from backbone import encoder_decoder_small_patch
 from forcast_utils import tfm_train, tfm_eval
-import traceback
+import traceback, atexit, random, time
+import numpy as np
 
 class Args():
     def __init__(self):
@@ -21,7 +22,7 @@ class Args():
         self.freq = 'h'
 
         self.batch_size = 32
-        self.num_workers = 0
+        self.num_workers = 10
         self.embed = 'timeF'
 
         self.label_len = 1
@@ -29,9 +30,9 @@ class Args():
         self.pred_len = 96
         self.target_len = 96 # enc-dec的目标变量长度
 
-        self.encoder = 'dlinear' # optional: 'cnn', 'dlinear'
+        self.encoder = 'cnn' # optional: 'cnn', 'dlinear'
         self.decoder = 'lstm' # optional: 'lstm'
-        self.d_model = 96
+        self.d_model = 72
         self.enc_layers=1
         self.dec_layers=1
         self.dropout=0.2
@@ -46,6 +47,7 @@ class Args():
         self.loss = 'mse'
         self.structure = 'VAE' # optionlal: 'Normal', 'VAE'
 
+        self.train_strategy = 'z2z' # optionlal: 'z2z', 'x2y'
         self.use_pretrained_emb = True
         self.joint_train = True
         self.supervised_joint_train = True
@@ -61,7 +63,7 @@ class Args():
         self.e_layers = 2
 
         self.use_profiler = False
-        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-29-15-22-55/seqlen96d_model96enc_layers1dec_layers1/model.pth'
+        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-30-16-10-14/seqlen96d_model72enc_layers1dec_layers1/model.pth'
 
 def save(args, enc_dec_small_patch, dir_path):
     torch.save(enc_dec_small_patch, dir_path + '/model.pth')
@@ -69,6 +71,16 @@ def save(args, enc_dec_small_patch, dir_path):
         json.dump(args.__dict__, f, indent=4)
 
 if __name__ == '__main__':
+    fix_seed = 2024
+    random.seed(fix_seed)
+    torch.manual_seed(fix_seed)
+    np.random.seed(fix_seed)
+
+    # 确保程序退出时清理GPU内存
+    def cleanup():
+        torch.cuda.empty_cache()
+    atexit.register(cleanup)
+
     args = Args()
     device = 'cuda'
     dir_path = '/home/liangzida/workspace/iTransformer/junk/forcast_emb/' + time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '/'\

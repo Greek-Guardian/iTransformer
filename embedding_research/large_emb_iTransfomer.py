@@ -13,8 +13,10 @@ class iTransformer(nn.Module):
     """
     def __init__(self, configs):
         super(iTransformer, self).__init__()
+        self.train_strategy = configs.train_strategy # optionlal: 'z2z', 'x2y'
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
+        self.d_model = configs.d_model
         self.output_attention = configs.output_attention
         self.use_norm = configs.use_norm
         self.class_strategy = configs.class_strategy
@@ -22,7 +24,6 @@ class iTransformer(nn.Module):
         self.joint_train = configs.joint_train
         self.supervised_joint_train = configs.supervised_joint_train
         self.device = 'cuda'
-        self.count = 0
         if configs.use_pretrained_emb:
             self.emb_model = encoder_decoder_small_patch(configs).to(self.device)
             self.emb_model.load_state_dict(torch.load(configs.emb_model_path).module.state_dict())
@@ -52,11 +53,12 @@ class iTransformer(nn.Module):
             norm_layer=torch.nn.LayerNorm(configs.d_model)
         )
 
-    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, flag='train'):
+    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, flag='train', iter=0):
         # B: batch_size;    E: d_model;
         # L: seq_len;       S: pred_len;
         # N: number of variate (tokens), can also includes covariates
         B, L, N = x_enc.shape
+        res = [torch.empty(0, device=self.device) for _ in range(4)]
         # **********************************************************************************************************************
         # **********************************************************************************************************************
         # B L N -> B N E                (B L N -> B L E in the vanilla Transformer)
@@ -78,30 +80,33 @@ class iTransformer(nn.Module):
         # **********************************************************************************************************************
         # **********************************************************************************************************************
         # B N E -> B N S -> B S N
-        if self.use_pretrained_emb:
-            output = self.emb_model(emb_out.reshape(B*N, -1), flag='z2ts').reshape(B, -1, N)
+        if self.train_strategy == 'x2y' or flag != 'train':
+            if self.use_pretrained_emb:
+                output = self.emb_model(emb_out.reshape(B*N, -1), flag='z2ts').reshape(B, -1, N)
+            else:
+                dec_out = self.projector(emb_out).permute(0, 2, 1)[:, :, :N] # filter the covariates
+                if self.use_norm:
+                    # De-Normalization from Non-stationary Transformer
+                    dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+                    output = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+                else:
+                    output = dec_out
+            res[0] = output[:, -self.pred_len:, :]  # [B, L, D]
+        elif self.train_strategy == 'z2z':
+            res[3] = emb_out
         else:
-            dec_out = self.projector(emb_out).permute(0, 2, 1)[:, :, :N] # filter the covariates
-            if self.use_norm:
-                # De-Normalization from Non-stationary Transformer
-                dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-                output = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+            raise ValueError('train_strategy not recognized')
         # **********************************************************************************************************************
         # **********************************************************************************************************************
         if self.joint_train and self.supervised_joint_train and flag == 'train':
-            self.count += 1
-            if self.count % 10 == 0:
-                return output, torch.empty(0, device=self.device), torch.empty(0, device=self.device)
-            x_reconstructed, loss_vae, _, _, _ = self.emb_model(x_enc.reshape(B*N, -1))
-            x_reconstructed = x_reconstructed.reshape(B, -1, N)
-            return output, x_reconstructed, loss_vae
-        else:
-            return output
+            if iter % 500 == 0:
+                x_reconstructed, loss_vae, _, _, _ = self.emb_model(x_enc.reshape(B*N, -1))
+                x_reconstructed = x_reconstructed.reshape(B, -1, N)
+                res[1] = x_reconstructed
+                res[2] = loss_vae
+        return tuple(res)
 
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, flag='train'):
-        if self.joint_train and self.supervised_joint_train and flag == 'train':
-            dec_out, x_reconstructed, loss_vae = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, flag=flag)
-            return dec_out[:, -self.pred_len:, :], x_reconstructed, loss_vae
-        else:
-            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, flag=flag)
-            return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+    def ts2z(self, y):
+        B, L, N = y.shape
+        y = y.reshape(B*N, L)
+        return self.emb_model.ts2z(y).detach().reshape(B, N, self.d_model)
