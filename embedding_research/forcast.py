@@ -49,18 +49,18 @@ class Args():
 
         self.train_strategy = 'z2z' # optionlal: 'z2z', 'x2y'
         self.use_pretrained_emb = True
-        self.joint_train = True
+        self.joint_train = False
         self.supervised_joint_train = True
 
         self.output_attention = True
-        self.use_norm = 1
+        self.use_norm = 0
         self.class_strategy = 'projection'
         self.factor = 1
-        self.n_heads = 8
-        self.d_ff = 2048
+        self.n_heads = 32
+        self.d_ff = 512
         self.tfm_dropout = 0.1
         self.tfm_activation = 'gelu'
-        self.e_layers = 2
+        self.e_layers = 3
 
         self.use_profiler = False
         self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-30-16-10-14/seqlen96d_model72enc_layers1dec_layers1/model.pth'

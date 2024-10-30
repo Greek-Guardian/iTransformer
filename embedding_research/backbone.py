@@ -47,7 +47,7 @@ class encoder_decoder_small_patch(nn.Module):
         z = mean + torch.exp(.5*logvar) * eps
         return z
 
-    def ts2z(self, input):
+    def ts2z(self, input, use_var=True):
         '''input: [B*N, L], output: [B*N, E]'''
         normalized_input = self.norm(input, 'normalize')
         if self.structure == 'Normal':
@@ -55,7 +55,10 @@ class encoder_decoder_small_patch(nn.Module):
             return z
         elif self.structure == 'VAE':
             mean, logvar = self.encoder(normalized_input)
-            z = self.normal_sample(mean, logvar)
+            if use_var:
+                z = self.normal_sample(mean, logvar)
+            else:
+                z = mean
             return z
 
     def z2ts(self, z):

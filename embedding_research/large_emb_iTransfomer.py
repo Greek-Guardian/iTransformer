@@ -106,7 +106,7 @@ class iTransformer(nn.Module):
                 res[2] = loss_vae
         return tuple(res)
 
-    def ts2z(self, y):
+    def ts2z(self, y, use_var=True):
         B, L, N = y.shape
         y = y.reshape(B*N, L)
-        return self.emb_model.ts2z(y).detach().reshape(B, N, self.d_model)
+        return self.emb_model.ts2z(y, use_var=use_var).detach().reshape(B, N, self.d_model)

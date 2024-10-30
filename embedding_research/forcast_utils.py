@@ -38,7 +38,7 @@ def tfm_train(args, data_loader, dir_path, model, prof=None):
                     writer.add_scalar('Metrics/mse',          mse_loss.item(),          epoch_count * len(data_loader) + ii)
                     writer.add_scalar('Metrics/mae',          mae_loss.item(),          epoch_count * len(data_loader) + ii)
                 elif args.train_strategy == 'z2z':
-                    z_y = model.module.ts2z(y)
+                    z_y = model.module.ts2z(y, use_var=True)
                     loss = criterion_mse(z_y, z_y_apostrophe)
                     writer.add_scalar('Loss/loss', loss.mean().item(), epoch_count * len(data_loader) + ii)
                     if ii % 100 == 0:
