@@ -25,14 +25,15 @@ def eval(args, enc_dec_small_patch, save_path, device='cuda'):
             elif args.structure == 'VAE':
                 x_recover, _, _, _, _ = enc_dec_small_patch(x)
             criterion = nn.MSELoss()
-            mse = criterion(x_recover, x)
-            mae = torch.mean(torch.abs(x_recover - x))
-            x = x.cpu().detach().numpy()
+            target = x if args.task == 'reconstruct' else y
+            mse = criterion(x_recover, target)
+            mae = torch.mean(torch.abs(x_recover - target))
+            target = target.cpu().detach().numpy()
             x_recover = x_recover.cpu().detach().numpy()
             # 在同一张图上，按照列添加子图，画出前五个原始数据和重构数据
             fig, axs = plt.subplots(5, 1, figsize=(10, 10))
             for i in range(5):
-                axs[i].plot(x[i], label='Original')
+                axs[i].plot(target[i], label='Original')
                 axs[i].plot(x_recover[i], label='Reconstructed')
                 axs[i].legend()
             plt.tight_layout()

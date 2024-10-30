@@ -1,15 +1,58 @@
 import torch
 import torch.nn as nn
+import numpy as np
+from embedding_research.dlinear import series_decomp
 
-class Encoder(nn.Module):
-    def __init__(self, input_dim, d_model, layer1_dim=16, structure='VAE', layer_num=3, dropout=0.5, activation=nn.LeakyReLU()):
-        super(Encoder, self).__init__()
-        self.activation = activation
-        self.layer_num = layer_num
-        self.input_dim = input_dim
-        self.d_model = d_model
-        self.structure = structure
-        self.layer1_dim = layer1_dim
+class LinearEnc(nn.Module):
+    def __init__(self, args):
+        super(LinearEnc, self).__init__()
+        self.activation = nn.LeakyReLU()
+        self.layer_num = args.enc_layers
+        self.input_dim = args.seq_len
+        self.d_model = args.d_model
+        self.structure = args.structure
+        self.layer1_dim = args.enc_cnn_layer1_dim
+        self.dropout = args.dropout
+        self.decompsition = series_decomp(args.moving_avg)
+
+        self.layers = nn.ModuleList()
+        self.dims = np.linspace(self.input_dim*2, self.d_model, self.layer_num+1).astype(int)
+        for i in range(self.layer_num):
+            self.layers.append(nn.Linear(self.dims[i], self.dims[i+1]))
+            self.layers.append(self.activation)
+            # self.layers.append(nn.Dropout(self.dropout))
+        self.layers.append(nn.Dropout(self.dropout))
+
+        if self.structure == 'Normal':
+            self.linear = nn.Linear(self.d_model, self.d_model)
+        elif self.structure == 'VAE':
+            self.mean_linear = nn.Linear(self.d_model, self.d_model)
+            self.log_var_linear = nn.Linear(self.d_model, self.d_model)
+
+    def forward(self, input):
+        seasonal_init, trend_init = self.decompsition(input.unsqueeze(-1))
+        output = torch.cat([seasonal_init.squeeze(-1), trend_init.squeeze(-1)], dim=-1)
+        for i in range(len(self.layers)):
+            output = self.layers[i](output)
+
+        if self.structure == 'Normal':
+            output = self.linear(output)
+            return output
+        elif self.structure == 'VAE':
+            mean = self.mean_linear(output)
+            log_var = self.log_var_linear(output)
+            return mean, log_var
+
+class CnnEnc(nn.Module):
+    def __init__(self, args):
+        super(CnnEnc, self).__init__()
+        self.activation = nn.LeakyReLU()
+        self.layer_num = args.enc_layers
+        self.input_dim = args.seq_len
+        self.d_model = args.d_model
+        self.structure = args.structure
+        self.layer1_dim = args.enc_cnn_layer1_dim
+        self.dropout = args.dropout
         self.cnns = nn.ModuleList()
         self.cnns.append(nn.Conv1d(in_channels=1, out_channels=self.layer1_dim, kernel_size=3, stride=1, padding=1))
         # self.cnns.append(nn.Dropout(dropout))
@@ -25,10 +68,10 @@ class Encoder(nn.Module):
         self.flatten = nn.Flatten()
         self.flatten_dim = int(self.layer1_dim * self.input_dim / 2)
         if self.structure == 'Normal':
-            self.linear = nn.Linear(self.flatten_dim, d_model)
+            self.linear = nn.Linear(self.flatten_dim, self.d_model)
         elif self.structure == 'VAE':
-            self.mean_linear = nn.Linear(self.flatten_dim, d_model)
-            self.log_var_linear = nn.Linear(self.flatten_dim, d_model)
+            self.mean_linear = nn.Linear(self.flatten_dim, self.d_model)
+            self.log_var_linear = nn.Linear(self.flatten_dim, self.d_model)
 
     def forward(self, input):
         output = input.unsqueeze(1)
@@ -44,18 +87,24 @@ class Encoder(nn.Module):
             log_var = self.log_var_linear(output)
             return mean, log_var
 
-class Decoder(nn.Module):
-    def __init__(self, d_model, output_dim, layer_num=3, dropout=0.5, activation=nn.Sigmoid(), bidirectional=True, lstm_num_layers=2, hidden_size=8, resnet=True):
-        super(Decoder, self).__init__()
-        self.resnet = resnet
-        self.layer_num = layer_num
-        self.activation = activation
+class LstmDec(nn.Module):
+    def __init__(self, args):
+        super(LstmDec, self).__init__()
+        self.resnet = args.lstm_resnet
+        self.layer_num = args.dec_layers
+        self.activation = nn.Sigmoid()
         self.rnns = nn.ModuleList()
-        self.rnns.append(nn.LSTM(input_size=1, hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, bidirectional=bidirectional, dropout=dropout))
+        self.d_model = args.d_model
+        self.output_dim = args.target_len
+        self.hidden_size = args.lstm_hidden_size
+        self.lstm_num_layers = args.lstm_num_layers
+        self.bidirectional = args.bidirectional
+        self.dropout = args.dropout
+        self.rnns.append(nn.LSTM(input_size=1, hidden_size=self.hidden_size, num_layers=self.lstm_num_layers, batch_first=True, bidirectional=self.bidirectional, dropout=self.dropout))
         for _ in range(self.layer_num-1):
-            self.rnns.append(nn.LSTM(input_size=hidden_size*(1+bidirectional), hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, bidirectional=bidirectional, dropout=dropout))
+            self.rnns.append(nn.LSTM(input_size=self.hidden_size*(1+self.bidirectional), hidden_size=self.hidden_size, num_layers=self.lstm_num_layers, batch_first=True, bidirectional=self.bidirectional, dropout=self.dropout))
         self.flatten = nn.Flatten()
-        self.projection = nn.Linear(d_model*hidden_size*(1+bidirectional), output_dim)
+        self.projection = nn.Linear(self.d_model*self.hidden_size*(1+self.bidirectional), self.output_dim)
 
     def forward(self, input):
         output = self.rnns[0](input.unsqueeze(-1))[0]

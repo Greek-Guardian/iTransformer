@@ -20,13 +20,14 @@ def train(args, data_loader, dir_path, enc_dec_small_patch, prof=None):
             for ii, (x, y, x_mark, y_mark) in (enumerate(data_loader)):
                 B, L, C = x.shape
                 x = torch.reshape(x.to(device), shape=[B*C, L]).float()
-                # y = torch.reshape(y.to(device)[:, -args.pred_len:, :], shape=[B*C, L]).float()
+                y = torch.reshape(y.to(device)[:, -args.pred_len:, :], shape=[B*C, L]).float()
                 optimizer.zero_grad()
                 if args.structure == 'Normal':
                     x_recover = enc_dec_small_patch(x)
-                    smoothL1_loss = criterion(x_recover, x)
-                    mse_loss = criterion_mse(x_recover, x)
-                    mae_loss = torch.mean(torch.abs(x_recover - x))
+                    target = x if args.task == 'reconstruct' else y
+                    smoothL1_loss = criterion(x_recover, target)
+                    mse_loss = criterion_mse(x_recover, target)
+                    mae_loss = torch.mean(torch.abs(x_recover - target))
                     loss = (mse_loss if args.loss == 'mse' else smoothL1_loss)
                     writer.add_scalar('Loss/loss',            loss.mean().item(),       epoch_count * len(data_loader) + ii)
                     writer.add_scalar('Loss/SmoothL1Loss',    smoothL1_loss.item(),     epoch_count * len(data_loader) + ii)
@@ -35,9 +36,10 @@ def train(args, data_loader, dir_path, enc_dec_small_patch, prof=None):
                 elif args.structure == 'VAE':
                     x_recover, loss_vae, mean, var, z = enc_dec_small_patch(x)
                     loss_vae = loss_vae * args.kld_loss_weight
-                    smoothL1_loss = criterion(x_recover, x)
-                    mse_loss = criterion_mse(x_recover, x)
-                    mae_loss = torch.mean(torch.abs(x_recover - x))
+                    target = x if args.task == 'reconstruct' else y
+                    smoothL1_loss = criterion(x_recover, target)
+                    mse_loss = criterion_mse(x_recover, target)
+                    mae_loss = torch.mean(torch.abs(x_recover - target))
                     loss = loss_vae.mean() + (mse_loss if args.loss == 'mse' else smoothL1_loss)
                     writer.add_scalar('Loss/loss',            loss.mean().item(),       epoch_count * len(data_loader) + ii)
                     writer.add_scalar('Loss/SmoothL1Loss',    smoothL1_loss.item(),     epoch_count * len(data_loader) + ii)

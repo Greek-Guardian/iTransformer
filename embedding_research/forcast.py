@@ -9,6 +9,7 @@ from data_provider.data_factory import data_provider
 from large_emb_iTransfomer import iTransformer
 from backbone import encoder_decoder_small_patch
 from forcast_utils import tfm_train, tfm_eval
+import traceback
 
 class Args():
     def __init__(self):
@@ -26,12 +27,16 @@ class Args():
         self.label_len = 1
         self.seq_len = 96
         self.pred_len = 96
+        self.target_len = 96 # enc-dec的目标变量长度
 
-        self.d_model = 512
+        self.encoder = 'dlinear' # optional: 'cnn', 'dlinear'
+        self.decoder = 'lstm' # optional: 'lstm'
+        self.d_model = 96
         self.enc_layers=1
         self.dec_layers=1
-        self.dropout=0.5
+        self.dropout=0.2
         self.bidirectional=True
+        self.moving_avg = 25
         self.enc_cnn_layer1_dim=32
         self.lstm_num_layers=2
         self.lstm_hidden_size=8
@@ -56,7 +61,7 @@ class Args():
         self.e_layers = 2
 
         self.use_profiler = False
-        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-29-10-26-21/seqlen96d_model512enc_layers1dec_layers1/model.pth'
+        self.emb_model_path = r'/home/liangzida/workspace/iTransformer/junk/encdec/2024-10-29-15-22-55/seqlen96d_model96enc_layers1dec_layers1/model.pth'
 
 def save(args, enc_dec_small_patch, dir_path):
     torch.save(enc_dec_small_patch, dir_path + '/model.pth')
@@ -98,4 +103,4 @@ if __name__ == '__main__':
             save(args, model, dir_path)
             tfm_eval(args, model, dir_path)
             print("Program interrupted. Model saved.")
-            print(f"An error occurred: {e}")
+            traceback.print_exc()

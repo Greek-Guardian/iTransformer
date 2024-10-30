@@ -39,7 +39,7 @@ def tfm_train(args, data_loader, dir_path, model, prof=None):
                 writer.add_scalar('Loss/SmoothL1Loss',    smoothL1_loss.item(),     epoch_count * len(data_loader) + ii)
                 writer.add_scalar('Metrics/mse',          mse_loss.item(),          epoch_count * len(data_loader) + ii)
                 writer.add_scalar('Metrics/mae',          mae_loss.item(),          epoch_count * len(data_loader) + ii)
-                if args.joint_train and args.supervised_joint_train:
+                if args.joint_train and args.supervised_joint_train and (x_reconstructed.numel() != 0):
                     supervised_loss_mse = criterion_mse(x, x_reconstructed)
                     loss_vae = loss_vae * args.kld_loss_weight
                     loss = loss + supervised_loss_mse.mean() + loss_vae.mean()

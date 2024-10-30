@@ -9,6 +9,7 @@ from data_provider.data_factory import data_provider
 from backbone import encoder_decoder_small_patch
 from train import train
 from eval import eval
+import traceback
 
 class Args():
     def __init__(self):
@@ -26,12 +27,16 @@ class Args():
         self.label_len = 1
         self.seq_len = 96
         self.pred_len = 96
+        self.target_len = 96
 
-        self.d_model = 512
-        self.enc_layers=1
+        self.encoder = 'dlinear' # optional: 'cnn', 'dlinear'
+        self.decoder = 'lstm' # optional: 'lstm'
+        self.d_model = 72
+        self.enc_layers=3
         self.dec_layers=1
         self.dropout=0.5
         self.bidirectional=True
+        self.moving_avg = 25
         self.enc_cnn_layer1_dim=32
         self.lstm_num_layers=2
         self.lstm_hidden_size=8
@@ -40,6 +45,7 @@ class Args():
 
         self.loss = 'mse'
         self.structure = 'VAE' # optionlal: 'Normal', 'VAE'
+        self.task = 'reconstruct' # optional: 'forecast', 'reconstruct'
 
         self.use_profiler = False
 
@@ -68,11 +74,7 @@ if __name__ == '__main__':
         with_stack=True
     ) if args.use_profiler else nullcontext() as prof:
         data_set, data_loader = data_provider(args, flag='train')
-        enc_dec_small_patch = encoder_decoder_small_patch(input_dim=args.seq_len, d_model=args.d_model, output_dim=args.seq_len, \
-                                                            structure=args.structure,\
-                                                            enc_layers=args.enc_layers, dec_layers=args.dec_layers, dropout=args.dropout, enc_cnn_layer1_dim=args.enc_cnn_layer1_dim,\
-                                                            bidirectional=args.bidirectional, lstm_num_layers=args.lstm_num_layers, lstm_hidden_size=args.lstm_hidden_size,\
-                                                            lstm_resnet=args.lstm_resnet).to(device)
+        enc_dec_small_patch = encoder_decoder_small_patch(args).to(device)
         enc_dec_small_patch = nn.parallel.DataParallel(enc_dec_small_patch, device_ids=[0, 1])
         try:
             train(args, data_loader, dir_path, enc_dec_small_patch, prof)
@@ -87,4 +89,4 @@ if __name__ == '__main__':
             eval(args, enc_dec_small_patch, dir_path)
             save(args, enc_dec_small_patch, dir_path)
             print("Program interrupted. Model saved.")
-            print(f"An error occurred: {e}")
+            traceback.print_exc()

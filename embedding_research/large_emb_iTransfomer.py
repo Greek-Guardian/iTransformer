@@ -21,13 +21,10 @@ class iTransformer(nn.Module):
         self.use_pretrained_emb = configs.use_pretrained_emb
         self.joint_train = configs.joint_train
         self.supervised_joint_train = configs.supervised_joint_train
-        device = 'cuda'
+        self.device = 'cuda'
+        self.count = 0
         if configs.use_pretrained_emb:
-            self.emb_model = encoder_decoder_small_patch(input_dim=configs.seq_len, d_model=configs.d_model, output_dim=configs.seq_len, \
-                                                                structure=configs.structure,\
-                                                                enc_layers=configs.enc_layers, dec_layers=configs.dec_layers, dropout=configs.dropout, enc_cnn_layer1_dim=configs.enc_cnn_layer1_dim,\
-                                                                bidirectional=configs.bidirectional, lstm_num_layers=configs.lstm_num_layers, lstm_hidden_size=configs.lstm_hidden_size,\
-                                                                lstm_resnet=configs.lstm_resnet).to(device)
+            self.emb_model = encoder_decoder_small_patch(configs).to(self.device)
             self.emb_model.load_state_dict(torch.load(configs.emb_model_path).module.state_dict())
             if not self.joint_train:
                 for param in self.emb_model.parameters():
@@ -92,6 +89,9 @@ class iTransformer(nn.Module):
         # **********************************************************************************************************************
         # **********************************************************************************************************************
         if self.joint_train and self.supervised_joint_train and flag == 'train':
+            self.count += 1
+            if self.count % 10 == 0:
+                return output, torch.empty(0, device=self.device), torch.empty(0, device=self.device)
             x_reconstructed, loss_vae, _, _, _ = self.emb_model(x_enc.reshape(B*N, -1))
             x_reconstructed = x_reconstructed.reshape(B, -1, N)
             return output, x_reconstructed, loss_vae
