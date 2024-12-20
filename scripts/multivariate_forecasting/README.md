@@ -26,6 +26,7 @@ To evaluate the model under other input/prediction lengths, feel free to change 
 # iTransformer on the Electricity Dataset, where 180 time steps are inputted as the observations, and the task is to predict the future 60 steps
 
 python -u run.py \
+  --train_epochs 100 \
   --is_training 1 \
   --root_path ./dataset/electricity/ \
   --data_path electricity.csv \

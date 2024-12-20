@@ -9,6 +9,7 @@ import os
 import time
 import warnings
 import numpy as np
+from torch.optim import lr_scheduler
 
 warnings.filterwarnings('ignore')
 
@@ -96,6 +97,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model_optim = self._select_optimizer()
         criterion = self._select_criterion()
 
+        scheduler = lr_scheduler.OneCycleLR(optimizer = model_optim,
+                                            steps_per_epoch = train_steps,
+                                            pct_start = 0.3,
+                                            epochs = self.args.train_epochs,
+                                            max_lr = self.args.learning_rate)
+
+
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
 
@@ -174,8 +182,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 print("Early stopping")
                 break
 
-            adjust_learning_rate(model_optim, epoch + 1, self.args)
-
+            # adjust_learning_rate(model_optim, epoch + 1, self.args)
+            scheduler.step()
             # get_cka(self.args, setting, self.model, train_loader, self.device, epoch)
 
         best_model_path = path + '/' + 'checkpoint.pth'

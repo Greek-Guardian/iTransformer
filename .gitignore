@@ -129,3 +129,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+test_results/
+nohup.out
+result_long_term_forecast.txt
+results/
+checkpoints/
+dataset/
