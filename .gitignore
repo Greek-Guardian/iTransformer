@@ -136,3 +136,4 @@ result_long_term_forecast.txt
 results/
 checkpoints/
 dataset/
+result.csv
