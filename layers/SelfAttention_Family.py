@@ -153,6 +153,12 @@ class FullAttention(nn.Module):
             scores.masked_fill_(attn_mask.mask, -np.inf)
 
         A = self.dropout(torch.softmax(scale * scores, dim=-1))
+
+        # # mean attention
+        # A = torch.ones(B, H, L, L).to(queries.device) / L
+        # # zero attention
+        # A = torch.zeros(B, H, L, L, device=queries.device)
+
         V = torch.einsum("bhls,bshd->blhd", A, values)
 
         if self.output_attention:

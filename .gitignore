@@ -137,3 +137,4 @@ results/
 checkpoints/
 dataset/
 result.csv
+checkpoints_old/
