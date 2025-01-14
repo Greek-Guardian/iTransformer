@@ -2,6 +2,8 @@
 
 model_name=iTransformer
 
+for e_layers in 0 1 5 6
+do
 python -u run.py \
   --train_epochs 100 \
   --is_training 1 \
@@ -13,7 +15,7 @@ python -u run.py \
   --features M \
   --seq_len 96 \
   --pred_len 96 \
-  --e_layers 2 \
+  --e_layers $e_layers \
   --enc_in 137 \
   --dec_in 137 \
   --c_out 137 \
@@ -22,6 +24,7 @@ python -u run.py \
   --d_ff 512 \
   --learning_rate 0.0005 \
   --itr 1
+done
 
 # python -u run.py \
 #   --train_epochs 100 \

@@ -25,6 +25,8 @@ To evaluate the model under other input/prediction lengths, feel free to change 
 ```
 # iTransformer on the Electricity Dataset, where 180 time steps are inputted as the observations, and the task is to predict the future 60 steps
 
+for e_layers in 0 1 5 6
+do
 python -u run.py \
   --train_epochs 100 \
   --is_training 1 \
@@ -36,7 +38,7 @@ python -u run.py \
   --features M \
   --seq_len 180 \
   --pred_len 60 \
-  --e_layers 3 \
+  --e_layers $e_layers \
   --enc_in 321 \
   --dec_in 321 \
   --c_out 321 \
@@ -46,6 +48,7 @@ python -u run.py \
   --batch_size 16 \
   --learning_rate 0.0005 \
   --itr 1
+done
 ```
 
 

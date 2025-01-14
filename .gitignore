@@ -141,3 +141,4 @@ checkpoints_raw_atten/
 junk/
 outputs/
 nohup_old.out
+checkpoints_old/
