@@ -138,21 +138,25 @@ class FullAttention(nn.Module):
         self.mask_flag = mask_flag
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
+        self.fix_attention = nn.Parameter(torch.randn(1, 1, 5, 5))
+        # 初始化self.fix_attention
+        nn.init.kaiming_normal_(self.fix_attention, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, queries, keys, values, attn_mask, tau=None, delta=None):
-        B, L, H, E = queries.shape
-        _, S, _, D = values.shape
-        scale = self.scale or 1. / sqrt(E)
+        # B, L, H, E = queries.shape
+        # _, S, _, D = values.shape
+        # scale = self.scale or 1. / sqrt(E)
 
-        scores = torch.einsum("blhe,bshe->bhls", queries, keys)
+        # scores = torch.einsum("blhe,bshe->bhls", queries, keys)
 
-        if self.mask_flag:
-            if attn_mask is None:
-                attn_mask = TriangularCausalMask(B, L, device=queries.device)
+        # if self.mask_flag:
+        #     if attn_mask is None:
+        #         attn_mask = TriangularCausalMask(B, L, device=queries.device)
 
-            scores.masked_fill_(attn_mask.mask, -np.inf)
+        #     scores.masked_fill_(attn_mask.mask, -np.inf)
 
-        A = self.dropout(torch.softmax(scale * scores, dim=-1))
+        # A = self.dropout(torch.softmax(scale * scores, dim=-1))
+        A = self.fix_attention
         V = torch.einsum("bhls,bshd->blhd", A, values)
 
         if self.output_attention:

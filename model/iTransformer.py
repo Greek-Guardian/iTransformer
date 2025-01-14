@@ -21,6 +21,9 @@ class Model(nn.Module):
         # Embedding
         self.enc_embedding = DataEmbedding_inverted(configs.seq_len, configs.d_model, configs.embed, configs.freq,
                                                     configs.dropout)
+        self.channel_emb = nn.Parameter(torch.randn(1, configs.enc_in, configs.d_model))
+        # 初始化self.channel_emb
+        nn.init.kaiming_normal_(self.channel_emb, mode='fan_in', nonlinearity='leaky_relu')
         self.class_strategy = configs.class_strategy
         # Encoder-only architecture
         self.encoder = Encoder(
@@ -55,6 +58,7 @@ class Model(nn.Module):
         # Embedding
         # B L N -> B N E                (B L N -> B L E in the vanilla Transformer)
         enc_out = self.enc_embedding(x_enc, x_mark_enc) # covariates (e.g timestamp) can be also embedded as tokens
+        enc_out = enc_out + self.channel_emb
         
         # B N E -> B N E                (B L E -> B L E in the vanilla Transformer)
         # the dimensions of embedded time series has been inverted, and then processed by native attn, layernorm and ffn modules

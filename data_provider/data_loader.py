@@ -533,3 +533,250 @@ class Dataset_Pred(Dataset):
 
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
+
+import random
+class StateMachine:
+    def __init__(self, init_state=None, state_shift_ratio=1.0, pattern=1):
+        self.pattern = pattern
+        self.state_shift_ratio = state_shift_ratio
+        self.state_list = {1: [1, -1, 0, 2],2: [0.5, 1, -0.5, 1.5, -1.5], 3: [1, -2, 1.5, -1, 0.5], 4: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5]}
+        if init_state is not None:
+            self.state = init_state
+        else:
+            if pattern == 1:
+                self.state = 1 if random.random() > self.state_shift_ratio else random.choice(self.state_list[1])
+            elif pattern == 2:
+                self.state = random.choice(self.state_list[2])
+            elif pattern == 3:
+                self.state = random.choice(self.state_list[3])
+            elif pattern == 4:
+                self.state = init_state
+
+    def next_state(self, control=None):
+        if self.pattern == 1:
+            # 1->0->-1->2->1
+            if self.state == 1:
+                self.state = 1 if random.random() > self.state_shift_ratio else -1
+            elif self.state == -1:
+                self.state = 0
+            elif self.state == 0:
+                self.state = 0.001
+            elif self.state == 0.001:
+                self.state = 2
+            elif self.state == 2:
+                self.state = 1
+        elif self.pattern == 2:
+            # 0.5->1->-0.5->1.5->-1.5->0.5
+            if self.state == 0.5:
+                self.state = -1# if random.random() > self.state_shift_ratio else -0.5
+            elif self.state == -1:
+                self.state = -0.5
+            elif self.state == -0.5:
+                self.state = 1.5
+            elif self.state == 1.5:
+                self.state = 0
+            elif self.state == 0:
+                self.state = -1.5
+            elif self.state == -1.5:
+                self.state = 0.5
+        elif self.pattern == 3:
+            if control>=0:
+                # 1->-2->1.5->-1->0.5->1
+                if self.state == 1:
+                    self.state = -2
+                elif self.state == -2:
+                    self.state = 1.5
+                elif self.state == 1.5:
+                    self.state = -1
+                elif self.state == -1:
+                    self.state = 0.5
+                elif self.state == 0.5:
+                    self.state = 1
+            elif control<0:
+                # 与大于零的情况反向
+                # 1->0.5->-1->1.5->-2->1
+                if self.state == 1:
+                    self.state = 0.5
+                elif self.state == 0.5:
+                    self.state = -1
+                elif self.state == -1:
+                    self.state = 1.5
+                elif self.state == 1.5:
+                    self.state = -2
+                elif self.state == -2:
+                    self.state = 1
+        elif self.pattern == 4:
+            # TODO:可以取整
+            control = int(control) / 2
+            self.state = control
+        return self.state
+
+class Dataset_Channel_dependent(Dataset):
+    def __init__(self, root_path, flag='pred', size=None,
+                 features='S', data_path='ETTh1.csv',
+                 target='OT', scale=True, inverse=False, timeenc=0, freq='15min', cols=None):
+        # size [seq_len, label_len, pred_len]
+        # info
+        if size == None:
+            self.seq_len = 24 * 4 * 4
+            self.label_len = 24 * 4
+            self.pred_len = 24 * 4
+        else:
+            self.seq_len = size[0]
+            self.label_len = size[1]
+            self.pred_len = size[2]
+        # # init
+        # assert flag in ['pred']
+        self.enc_in = 5
+
+        self.features = features
+        self.target = target
+        self.scale = scale
+        self.inverse = inverse
+        self.timeenc = timeenc
+        self.freq = freq
+        self.cols = cols
+        self.root_path = root_path
+        self.data_path = data_path
+
+    def get_channel(self, index, channle_idx, ):
+        s_begin = index
+        s_end = s_begin + self.seq_len
+        r_begin = s_end - self.label_len
+        r_end = r_begin + self.label_len + self.pred_len
+
+        # 载波参数
+        freq = 0.01
+        amplitude = 1
+        phase = 0
+        offset = 0
+        noise_scale = 0.025
+        # 事件参数
+        T_event = 16 * 5
+        positive_ratio = 0.1
+        event_amplitude = 0.5 # Big Event !!!!!!!!!!!!!!!!!!!!!!1
+        # 信号窗口
+        input_len = self.seq_len
+        output_len = self.pred_len
+        legnth = input_len + output_len + T_event * 2
+        t_start = index
+        t_end = t_start + legnth
+
+        # 生成载波信号
+        t = np.arange(t_start, t_end, 1)
+        signal = amplitude * np.sin(2 * np.pi * freq * t + phase) + offset
+
+        # # 载波置零
+        # signal = signal * 0
+
+        # 生成事件信号
+        event_time_bias = random.randint(0, T_event)
+        t_event_start = t_start + event_time_bias
+        # 生成一个三角波，正数部分占比为 positive_ratio，周期为freq_event
+        event = np.zeros(legnth)
+        bias = 0
+        state_machines = [StateMachine(pattern=1), StateMachine(pattern=2), StateMachine(pattern=3)]
+        s1 = state_machines[0].next_state()
+        s2 = state_machines[1].next_state()
+        s3 = state_machines[2].next_state(s1+s2)
+        state_machines.append(StateMachine(pattern=4, init_state=s1+s2+s3))
+        ratio = 8
+        durance = 4
+        while (t_event_start%T_event+bias+T_event)<legnth:
+            # # s1
+            s1 = state_machines[0].next_state()
+            state = s1
+            left = (t_event_start%T_event+bias)
+            right = left + T_event//ratio
+            middle = (left + right) // 2
+            event[left:middle] = np.linspace(0, 1, middle-left) * state
+            event[middle:right] = np.linspace(1, 0, right-middle) * state
+            # # s2
+            s2 = state_machines[1].next_state()
+            state = s2
+            left = left + T_event//durance
+            right = left + T_event//ratio
+            middle = (left + right) // 2
+            event[left:middle] = np.linspace(0, 1, middle-left) * state
+            event[middle:right] = np.linspace(1, 0, right-middle) * state
+            # # s3
+            s3 = state_machines[2].next_state(s1+s2)
+            state = s3
+            left = left + T_event//durance
+            right = left + T_event//ratio
+            middle = (left + right) // 2
+            event[left:middle] = np.linspace(0, 1, middle-left) * state
+            event[middle:right] = np.linspace(1, 0, right-middle) * state
+            # # s4
+            s4 = state_machines[3].next_state(s1+s2+s3)
+            state = s4
+            left = left + T_event//durance
+            right = left + T_event//ratio
+            middle = (left + right) // 2
+            event[left:middle] = np.linspace(0, 1, middle-left) * state
+            event[middle:right] = np.linspace(1, 0, right-middle) * state
+            # bias
+            bias += T_event
+        event = event * event_amplitude
+        seq_event = torch.tensor(event[T_event:-T_event])
+        signal += event
+
+        # 生成噪声信号
+        noise = np.random.normal(0, noise_scale, len(t))
+        seq_noise = torch.tensor(noise[T_event:-T_event])
+        signal += noise
+
+        signal = signal[T_event:-T_event]
+
+        # 脉冲信号
+        if channle_idx != 0:
+            channel_status = 1 if random.random() > 0.5 else 0
+            pulse_strength = 3
+            pulse_duration = 2
+            pulse_idx = random.randint(0, input_len-pulse_duration+1)
+            pulse = np.zeros(input_len+output_len)
+            pulse[pulse_idx:pulse_idx+pulse_duration] = pulse_strength * channel_status
+            signal += pulse
+        else:
+            channel_status = 0
+
+        # 单一通道
+        seq_x = torch.tensor(signal[:input_len])
+        seq_y = torch.tensor(signal[input_len:])
+
+        return seq_x, seq_y, seq_event, seq_noise, channel_status
+
+    def __getitem__(self, index):
+        status_mark = torch.zeros(self.enc_in)
+        for channel_idx in range(self.enc_in):
+            seq_x, seq_y, seq_event, seq_noise, channel_status = self.get_channel(index, channel_idx)
+            status_mark[channel_idx] = channel_status
+            if channel_idx == 0:
+                seq_xs = seq_x.unsqueeze(0)
+                seq_ys = seq_y.unsqueeze(0)
+                seq_events = seq_event.unsqueeze(0)
+                seq_noises = seq_noise.unsqueeze(0)
+            else:
+                seq_xs = torch.cat([seq_xs, seq_x.unsqueeze(0)], dim=0)
+                seq_ys = torch.cat([seq_ys, seq_y.unsqueeze(0)], dim=0)
+                seq_events = torch.cat([seq_events, seq_event.unsqueeze(0)], dim=0)
+                seq_noises = torch.cat([seq_noises, seq_noise.unsqueeze(0)], dim=0)
+            if channel_status == 1:
+                # print(seq_ys[0].shape, seq_y.shape, seq_event.shape, seq_noise[-self.pred_len:].shape)
+                seq_ys[0] = seq_ys[0] + seq_event[-self.pred_len:]
+                seq_events[0][-self.pred_len:] = seq_events[0][-self.pred_len:] + seq_event[-self.pred_len:]
+        # 把seq_xs, seq_ys, seq_events, seq_noises转置
+        seq_xs = seq_xs.transpose(1, 0)
+        seq_ys = seq_ys.transpose(1, 0)
+        seq_events = seq_events.transpose(1, 0)
+        seq_noises = seq_noises.transpose(1, 0)
+        event_noise = torch.cat([seq_events, seq_noises], dim=0)
+
+        # return seq_xs, seq_ys, seq_events, seq_noises
+        return seq_xs, seq_ys, event_noise, status_mark
+
+    def __len__(self):
+        return 100000
+
+    def inverse_transform(self, data):
+        return data
